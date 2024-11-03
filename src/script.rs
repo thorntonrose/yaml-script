@@ -1,25 +1,30 @@
-use std::fs;
-use std::collections::HashMap;
 use eval::{Expr, Value};
+use regex::{Match, Regex};
 use serde_json::Number;
-use regex::Regex;
-use yaml_rust2::{Yaml, YamlLoader};
+use std::collections::HashMap;
+use std::fs;
 use yaml_rust2::yaml::Hash;
+use yaml_rust2::{Yaml, YamlLoader};
 
 pub struct Script {
     pub path: String,
     pub vars: HashMap<String, Value>,
     pub log: Vec<String>,
-    pub writer: fn(&mut Vec<String>, val: String)
+    pub writer: fn(&mut Vec<String>, val: String),
 }
 
 impl Script {
     pub fn new(path: String, log: Option<Vec<String>>) -> Self {
+        let writer = match log {
+            Some(_) => Self::write_log,
+            None => Self::write_stdout,
+        };
+
         Self {
             path,
             vars: HashMap::new(),
-            writer: match log { Some(_) => Self::write_log, None => Self::write_stdout },
-            log: log.unwrap_or(Vec::new())
+            log: log.unwrap_or(Vec::new()),
+            writer,
         }
     }
 
@@ -37,11 +42,15 @@ impl Script {
         let text = fs::read_to_string(&self.path).unwrap();
         let docs = YamlLoader::load_from_str(&text).unwrap();
 
-        self.run_steps(docs[0].as_vec().unwrap());
+        for doc in docs {
+            self.run_steps(doc.as_vec().unwrap());
+        }
     }
 
     fn run_steps(&mut self, steps: &Vec<Yaml>) {
-        for step in steps { self.run_step(step.as_hash().unwrap()) }
+        for step in steps {
+            self.run_step(step.as_hash().expect("expected mapping"))
+        }
     }
 
     fn run_step(&mut self, step: &Hash) {
@@ -51,17 +60,25 @@ impl Script {
 
         match key {
             "echo" => self.do_echo(token.1),
-            _ => self.do_var(&key.to_string(), token.1)
+            "if" => self.do_if(token.1, step),
+            // ...
+            _ => self.do_var(&key.into(), token.1),
         }
     }
 
     //-------------------------------------------------------------------------
 
+    fn do_var(&mut self, name: &String, yaml: &Yaml) {
+        let val = self.yaml_to_value(yaml);
+        self.vars.insert(name.into(), val);
+    }
+
+    //-------------------------------------------------------------------------
+
     fn do_echo(&mut self, yaml: &Yaml) {
-        let val = self.to_value(yaml);
-        println!("echo: val: {val:?}");
-        let val_string = self.value_string(val);
-        self.write(val_string);
+        let val = self.eval(yaml);
+        let val_str = self.value_to_string(val);
+        self.write(val_str);
     }
 
     fn write(&mut self, val: String) {
@@ -70,40 +87,61 @@ impl Script {
 
     //-------------------------------------------------------------------------
 
-    fn do_var(&mut self, name: &String, yaml: &Yaml) {
-        let val = self.to_value(yaml);
-        self.vars.insert(name.to_string(), val);
+    fn do_if(&mut self, cond: &Yaml, step: &Hash) {
+        let truthy = self.is_truthy(cond);
+        let key = if truthy { "then" } else { "else" };
+        let steps = step
+            .get(&Yaml::from_str(key))
+            .expect(format!("expected '{key}'").as_str());
+        self.run_steps(steps.as_vec().unwrap());
     }
 
-    fn to_value(&mut self, yaml: &Yaml) -> Value {
-        match yaml {
-            Yaml::Boolean(b) => Value::Bool(*b),
-            Yaml::String(s) => self.eval(s.to_string()),
-            Yaml::Integer(i) => Value::Number((*i).into()),
-            Yaml::Real(_) => Value::Number(Number::from_f64(yaml.as_f64().unwrap()).unwrap()),
-            _ => Value::String(format!("{yaml:?}"))
+    fn is_truthy(&mut self, cond: &Yaml) -> bool {
+        let val = self.eval(cond);
+        println!("is_truthy: val: {val:?}");
+
+        match val {
+            Value::Bool(b) => b,
+            Value::Number(n) => !self.is_zero(n),
+            Value::String(s) => s.len() > 0,
+            // ???: more?
+            _ => false,
         }
     }
 
-    fn eval(&mut self, expr: String) -> Value {
+    fn is_zero(&mut self, num: Number) -> bool {
+        (num.is_i64() && num.as_i64() == Some(0i64))
+            || (num.is_f64() && num.as_f64() == Some(0.0f64))
+    }
+
+    //-------------------------------------------------------------------------
+
+    fn eval(&mut self, yaml: &Yaml) -> Value {
+        println!("eval: yaml: {yaml:?}");
+        let val = self.yaml_to_value(yaml);
+
+        match val {
+            Value::String(s) => self.eval_expr(s),
+            _ => val,
+        }
+    }
+
+    fn eval_expr(&mut self, expr: String) -> Value {
         println!("eval: expr: {expr}");
         let re = Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
 
         if re.is_match(&expr) {
-            self.expr_value(expr, re)
+            self.eval_interpolated(expr, re)
         } else {
-            Value::String(expr.to_string())
+            Value::String(expr.into())
         }
     }
 
-    fn expr_value(&mut self, expr: String, re: Regex) -> Value {
+    fn eval_interpolated(&mut self, expr: String, re: Regex) -> Value {
         let mut buf = expr.clone();
 
         for token in re.find_iter(&expr) {
-            let placeholder = token.as_str().to_string();
-            let var_name = placeholder.strip_prefix("$").unwrap().to_string();
-            let var_val = self.vars.get(&var_name).unwrap_or(&Value::Null);
-            buf = buf.replace(&placeholder, self.value_string(var_val.clone()).as_str());
+            buf = self.interpolate(buf, token);
             println!("eval: buf: {buf}");
         }
 
@@ -112,31 +150,59 @@ impl Script {
         val
     }
 
-    fn value_string(&mut self, val: Value) -> String {
+    fn interpolate(&mut self, buf: String, token: Match<'_>) -> String {
+        let placeholder = token.as_str().to_string();
+        let var_name = placeholder.strip_prefix("$").unwrap().to_string();
+        let var_val = self.vars.get(&var_name).unwrap_or(&Value::Null);
+
+        let var_val_str = match var_val {
+            Value::String(s) => format!("\"{s}\""),
+            _ => self.value_to_string(var_val.clone()),
+        };
+
+        buf.replace(&placeholder, &var_val_str)
+    }
+
+    fn yaml_to_value(&mut self, yaml: &Yaml) -> Value {
+        match yaml {
+            Yaml::Boolean(b) => Value::Bool(*b),
+            Yaml::String(s) => Value::String(s.into()),
+            Yaml::Integer(i) => Value::Number((*i).into()),
+            Yaml::Real(_) => Value::Number(Number::from_f64(yaml.as_f64().unwrap()).unwrap()),
+            // ...
+            _ => Value::String(format!("{yaml:?}")),
+        }
+    }
+
+    fn value_to_string(&mut self, val: Value) -> String {
         match val {
-            Value::String(s) => s.as_str().to_string(),
-            _ => format!("{val}")
+            Value::String(s) => s.as_str().into(),
+            _ => format!("{val}"),
         }
     }
 }
+
+//=============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn eval() {
+    fn eval_expr() {
         let mut s = Script::new(String::new(), None);
-        s.vars.insert("_".to_string(), Value::Number(42.into()));
-        s.vars.insert("a".to_string(), Value::Number(42.into()));
-        s.vars.insert("A".to_string(), Value::Number(42.into()));
-        s.vars.insert("_aA0_".to_string(), Value::Number(42.into()));
+        s.vars.insert("_".into(), Value::Number(42.into()));
+        s.vars.insert("a".into(), Value::Number(42.into()));
+        s.vars.insert("A".into(), Value::Number(42.into()));
+        s.vars.insert("_aA0_".into(), Value::Number(42.into()));
 
-        assert_eq!(42, s.eval("$_".to_string()));
-        assert_eq!(42, s.eval("$a".to_string()));
-        assert_eq!(42, s.eval("$A".to_string()));
-        assert_eq!(42, s.eval("$_aA0_".to_string()));
+        assert_eq!(42, s.eval_expr("$_".into()));
+        assert_eq!(42, s.eval_expr("$a".into()));
+        assert_eq!(42, s.eval_expr("$A".into()));
+        assert_eq!(42, s.eval_expr("$_aA0_".into()));
     }
+
+    //-------------------------------------------------------------------------
 
     #[test]
     fn do_var() {
@@ -147,33 +213,60 @@ mod tests {
         assert_eq!(42, *s.vars.get(&key).unwrap());
     }
 
-    #[test]
-    fn do_var_expr() {
-        let mut s = Script::new(String::new(), None);
-        s.vars.insert("a".to_string(), Value::Number(42.into()));
-
-        let key = "b".to_string();
-
-        s.do_var(&key, &Yaml::from_str("$a"));
-        assert_eq!(42, *s.vars.get(&key).unwrap());
-    }
+    //-------------------------------------------------------------------------
 
     #[test]
     fn do_echo() {
         let mut s = Script::new(String::new(), Some(Vec::new()));
-
-        s.do_echo(&Yaml::from_str("foo"));
-        assert_eq!("foo", s.log[0]);
-    }
-
-    #[test]
-    fn do_echo_expr() {
-        let mut s = Script::new(String::new(), Some(Vec::new()));
-        s.vars.insert("a".to_string(), Value::Number(42.into()));
+        s.vars.insert("a".into(), Value::Number(42.into()));
 
         s.do_echo(&Yaml::from_str("$a + 1"));
         assert_eq!("43", s.log[0]);
     }
+
+    //-------------------------------------------------------------------------
+
+    #[test]
+    fn is_truthy_true() {
+        let mut s = Script::new(String::new(), None);
+
+        for val in vec!["true", "1", "foo"] {
+            assert_eq!(true, s.is_truthy(&Yaml::from_str(val)));
+        }
+    }
+
+    #[test]
+    fn is_truthy_false() {
+        let mut s = Script::new(String::new(), None);
+
+        for cond in vec![
+            &Yaml::from_str("false"),
+            &Yaml::from_str("0"),
+            &Yaml::String("".into()),
+        ] {
+            assert_eq!(false, s.is_truthy(cond));
+        }
+    }
+
+    #[test]
+    fn do_if_true() {
+        let mut s = Script::new(String::new(), None);
+        let then_yaml = YamlLoader::load_from_str("then: [a: 42]").unwrap();
+
+        s.do_if(&Yaml::from_str("true"), &then_yaml[0].as_hash().unwrap());
+        assert_eq!(42, *s.vars.get("a").unwrap());
+    }
+
+    #[test]
+    fn do_if_false() {
+        let mut s = Script::new(String::new(), None);
+        let else_yaml = YamlLoader::load_from_str("else: [a: 42]").unwrap();
+
+        s.do_if(&Yaml::from_str("false"), &else_yaml[0].as_hash().unwrap());
+        assert_eq!(42, *s.vars.get("a").unwrap());
+    }
+
+    //-------------------------------------------------------------------------
 
     #[test]
     fn run_step() {
@@ -192,7 +285,7 @@ mod tests {
         let steps = docs[0].as_vec().unwrap();
 
         s.run_steps(&steps);
-        assert_eq!(42, s.vars.get(&"a".to_string()).unwrap().as_i64().unwrap());
+        assert_eq!(42, s.vars.get("a").unwrap().as_i64().unwrap());
         assert_eq!("foo", s.log[0]);
     }
 }
