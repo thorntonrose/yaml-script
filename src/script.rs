@@ -55,19 +55,20 @@ impl Script {
         }
     }
 
+    //-------------------------------------------------------------------------
+
     fn do_echo(&mut self, yaml: &Yaml) {
         let val = self.to_value(yaml);
         println!("echo: val: {val:?}");
-
-        self.write(match val {
-            Value::String(s) => s.as_str().to_string(),
-            _ => format!("{val}")
-        });
+        let val_string = self.value_string(val);
+        self.write(val_string);
     }
 
     fn write(&mut self, val: String) {
         (self.writer)(&mut self.log, val);
     }
+
+    //-------------------------------------------------------------------------
 
     fn do_var(&mut self, name: &String, yaml: &Yaml) {
         let val = self.to_value(yaml);
@@ -86,27 +87,35 @@ impl Script {
 
     fn eval(&mut self, expr: String) -> Value {
         println!("eval: expr: {expr}");
-        let re = Regex::new(r"\$\.([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
+        let re = Regex::new(r"\$([a-zA-Z_][a-zA-Z0-9_]*)").unwrap();
 
         if re.is_match(&expr) {
-            let val = Expr::new(expr).value("$", &self.vars).exec().unwrap();
-            println!("eval: val: {val}");
-            val
-
-            // let mut val = expr.clone();
-
-            // for m in re.find_iter(&expr) {
-            //     let var_name = m.as_str();
-            //     let var_val = self.vars.get(var_name).unwrap_or(&Value::Null).as_str().unwrap();
-            //     val = val.replace(var_name, var_val);
-            //     println!("eval: val: {val}");
-            // }
-
-            // let yaml = Yaml::from_str(&val);
-            // println!("eval: yaml: {yaml:?}");
-            // self.to_value(&yaml)
+            self.expr_value(expr, re)
         } else {
             Value::String(expr.to_string())
+        }
+    }
+
+    fn expr_value(&mut self, expr: String, re: Regex) -> Value {
+        let mut buf = expr.clone();
+
+        for token in re.find_iter(&expr) {
+            let placeholder = token.as_str().to_string();
+            let var_name = placeholder.strip_prefix("$").unwrap().to_string();
+            let var_val = self.vars.get(&var_name).unwrap_or(&Value::Null);
+            buf = buf.replace(&placeholder, self.value_string(var_val.clone()).as_str());
+            println!("eval: buf: {buf}");
+        }
+
+        let val = Expr::new(buf).exec().unwrap();
+        println!("eval: val: {val}");
+        val
+    }
+
+    fn value_string(&mut self, val: Value) -> String {
+        match val {
+            Value::String(s) => s.as_str().to_string(),
+            _ => format!("{val}")
         }
     }
 }
@@ -123,10 +132,10 @@ mod tests {
         s.vars.insert("A".to_string(), Value::Number(42.into()));
         s.vars.insert("_aA0_".to_string(), Value::Number(42.into()));
 
-        assert_eq!(42, s.eval("$._".to_string()));
-        assert_eq!(42, s.eval("$.a".to_string()));
-        assert_eq!(42, s.eval("$.A".to_string()));
-        assert_eq!(42, s.eval("$._aA0_".to_string()));
+        assert_eq!(42, s.eval("$_".to_string()));
+        assert_eq!(42, s.eval("$a".to_string()));
+        assert_eq!(42, s.eval("$A".to_string()));
+        assert_eq!(42, s.eval("$_aA0_".to_string()));
     }
 
     #[test]
@@ -145,7 +154,7 @@ mod tests {
 
         let key = "b".to_string();
 
-        s.do_var(&key, &Yaml::from_str("$.a"));
+        s.do_var(&key, &Yaml::from_str("$a"));
         assert_eq!(42, *s.vars.get(&key).unwrap());
     }
 
@@ -162,7 +171,7 @@ mod tests {
         let mut s = Script::new(String::new(), Some(Vec::new()));
         s.vars.insert("a".to_string(), Value::Number(42.into()));
 
-        s.do_echo(&Yaml::from_str("$.a + 1"));
+        s.do_echo(&Yaml::from_str("$a + 1"));
         assert_eq!("43", s.log[0]);
     }
 
