@@ -66,7 +66,8 @@ impl Script {
     }
 
     fn run_step(&mut self, step: &Hash) {
-        // println!("{step:?}"); // ???: need better option for verbose
+        // ???: Need better option for verbose.
+        // println!("{step:?}");
         let token = step.iter().next().unwrap();
         let key = token.0.as_str().unwrap();
 
@@ -75,6 +76,7 @@ impl Script {
             "if" => self.do_if(token.1, step),
             "while" => self.do_while(token.1, step),
             "break" => self.do_break(token.1, step),
+            "each" => self.do_each(token.1, step),
             // ...
             _ => self.do_var(&key.into(), token.1),
         }
@@ -84,6 +86,7 @@ impl Script {
 
     // - <name>: <value>
     fn do_var(&mut self, name: &String, yaml: &Yaml) {
+        // ???: Need validation. Name must be indentifier.
         let val = self.yaml_to_value(yaml);
         self.vars.insert(name.into(), val);
     }
@@ -103,25 +106,19 @@ impl Script {
 
     //-------------------------------------------------------------------------
 
-    // - if: <truthy-expression>
-    //   [then:
-    //      <steps>]
-    //   [else:
-    //      <steps>]
+    // - if: <condition>
+    //   [then: <steps>]
+    //   [else: <steps>]
+    //
+    // condition = <bool> | !0 | !""
     fn do_if(&mut self, cond: &Yaml, step: &Hash) {
-        let truthy = self.is_truthy(cond);
-        let key = if truthy { "then" } else { "else" };
-        let steps = step
-            .get(&Yaml::from_str(key))
-            .expect(format!("expected '{key}'").as_str());
-
-        self.run_steps(steps.as_vec().unwrap());
+        let key = if self.is_truthy(cond) { "then" } else { "else" };
+        let steps = self.get_list(key, step);
+        self.run_steps(&steps);
     }
 
     fn is_truthy(&mut self, cond: &Yaml) -> bool {
-        let val = self.eval(cond);
-
-        match val {
+        match self.eval(cond) {
             Value::Bool(b) => b,
             Value::Number(n) => !self.is_zero(n),
             Value::String(s) => s.len() > 0,
@@ -135,19 +132,25 @@ impl Script {
             || (num.is_f64() && num.as_f64() == Some(0.0f64))
     }
 
+    fn get_list(&mut self, key: &str, step: &Hash) -> Vec<Yaml> {
+        step
+            .get(&Yaml::from_str(key))
+            .expect(format!("expected '${key}'").as_str())
+            .clone()
+            .into_vec()
+            .expect("expected list")
+    }
+
     //-------------------------------------------------------------------------
 
     // - while: <truthy-expression>
     //   do:
     //     <steps>
     fn do_while(&mut self, cond: &Yaml, step: &Hash) {
-        let key = "do";
-        let steps = step
-            .get(&Yaml::from_str(key))
-            .expect(format!("expected '{key}'").as_str());
+        let steps = self.get_list("do", step);
 
         while self.is_truthy(cond) {
-            self.run_steps(steps.as_vec().unwrap());
+            self.run_steps(&steps);
 
             if self.break_opt.is_some() {
                 self.break_opt = None;
@@ -158,7 +161,29 @@ impl Script {
 
     //-------------------------------------------------------------------------
 
-    // - break: [<truthy-expression>]
+    // - each: <var>
+    //   in: <list>
+    //   do: <steps>
+    fn do_each(&mut self, var: &Yaml, step: &Hash) {
+        // ???: Need validation. Name must be indentifier.
+        let var_name = var.as_str().expect("expected string").to_string();
+        let items = self.get_list("in", step);
+        let steps = self.get_list("do", step);
+
+        for item in items {
+            self.do_var(&var_name, &item);
+            self.run_steps(&steps);
+
+            if self.break_opt.is_some() {
+                self.break_opt = None;
+                break;
+            }
+        }
+    }
+
+    //-------------------------------------------------------------------------
+
+    // - break: [<condition>]
     //   [message: <string>]
     fn do_break(&mut self, cond: &Yaml, step: &Hash) {
         let truthy = self.is_truthy(cond);
@@ -191,7 +216,7 @@ impl Script {
     }
 
     fn eval_expr(&mut self, expr: String) -> Value {
-        let re = Regex::new(r"\$\{.+\}").unwrap();
+        let re = Regex::new(r"\$\{[a-zA-Z0-9_\.+\-\*/%=<>!&| ]*\}").unwrap();
 
         match re.is_match(&expr) {
             true => self.eval_tokens(expr, re),
@@ -200,18 +225,16 @@ impl Script {
     }
 
     fn eval_tokens(&mut self, expr: String, re: Regex) -> Value {
-        println!("eval_tokens: expr: {expr}");
         let mut buf = expr.clone();
 
-        for token in re.find_iter(&expr) {
-            buf.replace_range(token.start()..token.end(), self.eval_token(token).as_str());
+        while let Some(m) = re.find(&buf) {
+            buf.replace_range(m.start()..m.end(), self.eval_token(m).as_str());
         }
 
         self.yaml_to_value(&Yaml::from_str(&buf))
     }
 
     fn eval_token(&mut self, token: Match<'_>) -> String {
-        println!("eval_token: token: {token:?}");
         let expr_str = token.as_str().replace("${", "").replace("}", "");
         let mut expr = Expr::new(expr_str);
 
@@ -252,12 +275,21 @@ mod tests {
     fn eval() {
         let mut script = Script::new(String::new(), None);
         script.vars.insert("a".into(), Value::Number(1.into()));
-        script.vars.insert("b".into(), Value::Number(1.into()));
+        script.vars.insert("b".into(), Value::Number(2.into()));
 
-        assert_eq!(0, script.eval(&Yaml::from_str("0")));
-        assert_eq!(1, script.eval(&Yaml::from_str("${a}")));
-        assert_eq!(2, script.eval(&Yaml::from_str("${a+b}")));
-        assert_eq!("a+b = 2", script.eval(&Yaml::from_str("a+b = ${a+b}")));
+        for e in vec![
+            ("0", Value::from(0)),
+            ("1.0", Value::from(1.0)),
+            ("true", Value::from(true)),
+            ("${a}", Value::from(1)),
+            ("${a + b}", Value::from(3)),
+            ("${a}, ${b}", Value::from("1, 2")),
+            ("a+b = ${a + b}", Value::from("a+b = 3")),
+            ("${a == 1}", Value::from(true)),
+            // ...
+        ] {
+            assert_eq!(e.1, script.eval(&Yaml::from_str(e.0)), "{e:?}");
+        }
     }
 
     //-------------------------------------------------------------------------
@@ -276,51 +308,45 @@ mod tests {
     #[test]
     fn do_echo() {
         let mut script = Script::new(String::new(), Some(Vec::new()));
-        script.vars.insert("a".into(), Value::Number(42.into()));
+        script.vars.insert("a".into(), Value::Number(41.into()));
 
-        script.do_echo(&Yaml::from_str("a: ${a + 1}"));
-        assert_eq!("a: 43", script.log[0]);
+        script.do_echo(&Yaml::from_str("answer: ${a + 1}"));
+        assert_eq!("answer: 42", script.log[0]);
     }
 
     //-------------------------------------------------------------------------
 
     #[test]
-    fn is_truthy_true() {
+    fn is_truthy() {
         let mut script = Script::new(String::new(), None);
 
-        for val in vec!["true", "1", "foo"] {
-            assert_eq!(true, script.is_truthy(&Yaml::from_str(val)));
-        }
-    }
-
-    #[test]
-    fn is_truthy_false() {
-        let mut script = Script::new(String::new(), None);
-
-        for cond in vec![
-            &Yaml::from_str("false"),
-            &Yaml::from_str("0"),
-            &Yaml::String("".into()),
+        for e in vec![
+            (&Yaml::from_str("true"), true),
+            (&Yaml::from_str("false"), false),
+            (&Yaml::from_str("1"), true),
+            (&Yaml::from_str("0"), false),
+            (&Yaml::from_str("foo"), true),
+            (&Yaml::String("".into()), false),
         ] {
-            assert_eq!(false, script.is_truthy(cond));
+            assert_eq!(e.1, script.is_truthy(e.0), "{e:?}");
         }
     }
 
     #[test]
-    fn do_if_true() {
+    fn do_if_then() {
         let mut script = Script::new(String::new(), None);
-        let then_yaml = YamlLoader::load_from_str("then: [a: 42]").unwrap();
+        let docs = YamlLoader::load_from_str("then: [a: 42]").unwrap();
 
-        script.do_if(&Yaml::from_str("true"), &then_yaml[0].as_hash().unwrap());
+        script.do_if(&Yaml::from_str("true"), &docs[0].as_hash().unwrap());
         assert_eq!(42, *script.vars.get("a").unwrap());
     }
 
     #[test]
-    fn do_if_false() {
+    fn do_if_else() {
         let mut script = Script::new(String::new(), None);
-        let else_yaml = YamlLoader::load_from_str("else: [a: 42]").unwrap();
+        let docs = YamlLoader::load_from_str("else: [a: 42]").unwrap();
 
-        script.do_if(&Yaml::from_str("false"), &else_yaml[0].as_hash().unwrap());
+        script.do_if(&Yaml::from_str("false"), &docs[0].as_hash().unwrap());
         assert_eq!(42, *script.vars.get("a").unwrap());
     }
 
@@ -329,20 +355,43 @@ mod tests {
     #[test]
     fn do_while() {
         let mut script = Script::new(String::new(), None);
-        let do_yaml = YamlLoader::load_from_str("do: [a: 42]").unwrap();
+        let docs = YamlLoader::load_from_str("do: [a: 42]").unwrap();
         script.vars.insert("a".into(), Value::Number(1.into()));
 
-        script.do_while(&Yaml::from_str("$a == 1"), &do_yaml[0].as_hash().unwrap());
+        script.do_while(&Yaml::from_str("${a == 1}"), &docs[0].as_hash().unwrap());
         assert_eq!(42, *script.vars.get("a").unwrap());
     }
 
     #[test]
     fn do_while_break() {
         let mut script = Script::new(String::new(), None);
-        let do_yaml = YamlLoader::load_from_str("do: [break: true]").unwrap();
+        let docs = YamlLoader::load_from_str("do: [break: true]").unwrap();
 
-        script.do_while(&Yaml::from_str("true"), &do_yaml[0].as_hash().unwrap());
+        script.do_while(&Yaml::from_str("true"), &docs[0].as_hash().unwrap());
         assert!(script.break_opt.is_none());
+    }
+
+    //-------------------------------------------------------------------------
+
+    #[test]
+    fn do_each() {
+        let mut script = Script::new(String::new(), Some(Vec::new()));
+        let docs = YamlLoader::load_from_str("{in: [1, 2], do: [echo: '${x}']}").unwrap();
+
+        script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
+        assert_eq!(2, *script.vars.get("x").unwrap());
+        assert_eq!("1", script.log[0]);
+        assert_eq!("2", script.log[1]);
+    }
+
+    #[test]
+    fn do_each_break() {
+        let mut script = Script::new(String::new(), Some(Vec::new()));
+        let docs = YamlLoader::load_from_str("{in: [1, 2], do: [break: true]}").unwrap();
+
+        script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
+        assert_eq!(1, *script.vars.get("x").unwrap());
+        assert_eq!(0, script.log.len());
     }
 
     //-------------------------------------------------------------------------
@@ -350,9 +399,9 @@ mod tests {
     #[test]
     fn do_break() {
         let mut script = Script::new(String::new(), None);
-        let hash_yaml = YamlLoader::load_from_str("foo:").unwrap();
+        let docs = YamlLoader::load_from_str("foo:").unwrap();
 
-        script.do_break(&Yaml::from_str("true"), &hash_yaml[0].as_hash().unwrap());
+        script.do_break(&Yaml::from_str("true"), &docs[0].as_hash().unwrap());
         assert_eq!(Some("(break)".into()), script.break_opt);
     }
 

@@ -1,0 +1,7 @@
+- if: true
+  then:
+   - echo: true => then
+
+- if: false
+  else:
+    - echo: false => else
