@@ -1,5 +1,6 @@
 mod script;
 
+use script::Script;
 use std::env;
 
 fn main() {
@@ -8,6 +9,6 @@ fn main() {
     if args.len() < 2 {
         println!("usage: ys <file>");
     } else {
-        script::Script::new(args[1].clone(), None).run()
+        Script::new(args[1].clone(), None).run()
     }
 }

@@ -1,41 +1,27 @@
+mod writer;
+
 use eval::{Expr, Value};
 use regex::{Match, Regex};
 use serde_json::Number;
-use std::collections::HashMap;
-use std::fs;
-use yaml_rust2::yaml::Hash;
-use yaml_rust2::{Yaml, YamlLoader};
+use std::{collections::HashMap, fs};
+use writer::Writer;
+use yaml_rust2::{yaml::Hash, Yaml, YamlLoader};
 
 pub struct Script {
     pub path: String,
     pub vars: HashMap<String, Value>,
-    pub log: Vec<String>,
-    pub writer: fn(&mut Vec<String>, val: String),
+    pub writer: Writer,
     pub break_opt: Option<String>,
 }
 
 impl Script {
-    pub fn new(path: String, log: Option<Vec<String>>) -> Self {
-        let writer = match log {
-            Some(_) => Self::write_log,
-            None => Self::write_stdout,
-        };
-
+    pub fn new(path: String, log_opt: Option<Vec<String>>) -> Self {
         Self {
             path,
             vars: HashMap::new(),
-            log: log.unwrap_or(Vec::new()),
-            writer,
+            writer: Writer::new(log_opt),
             break_opt: None,
         }
-    }
-
-    fn write_log(log: &mut Vec<String>, val: String) {
-        log.push(val);
-    }
-
-    fn write_stdout(_: &mut Vec<String>, val: String) {
-        println!("{val}");
     }
 
     //-------------------------------------------------------------------------
@@ -97,12 +83,13 @@ impl Script {
     fn do_echo(&mut self, yaml: &Yaml) {
         let val = self.eval(yaml);
         let val_str = self.value_to_string(val);
-        self.write(val_str);
+        // self.write(val_str);
+        self.writer.write(val_str);
     }
 
-    fn write(&mut self, val: String) {
-        (self.writer)(&mut self.log, val);
-    }
+    // fn write(&mut self, val: String) {
+    //     (self.writer)(&mut self.log, val);
+    // }
 
     //-------------------------------------------------------------------------
 
@@ -133,8 +120,7 @@ impl Script {
     }
 
     fn get_list(&mut self, key: &str, step: &Hash) -> Vec<Yaml> {
-        step
-            .get(&Yaml::from_str(key))
+        step.get(&Yaml::from_str(key))
             .expect(format!("expected '${key}'").as_str())
             .clone()
             .into_vec()
@@ -311,7 +297,7 @@ mod tests {
         script.vars.insert("a".into(), Value::Number(41.into()));
 
         script.do_echo(&Yaml::from_str("answer: ${a + 1}"));
-        assert_eq!("answer: 42", script.log[0]);
+        assert_eq!("answer: 42", script.writer.log[0]);
     }
 
     //-------------------------------------------------------------------------
@@ -380,8 +366,8 @@ mod tests {
 
         script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
         assert_eq!(2, *script.vars.get("x").unwrap());
-        assert_eq!("1", script.log[0]);
-        assert_eq!("2", script.log[1]);
+        assert_eq!("1", script.writer.log[0]);
+        assert_eq!("2", script.writer.log[1]);
     }
 
     #[test]
@@ -391,7 +377,7 @@ mod tests {
 
         script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
         assert_eq!(1, *script.vars.get("x").unwrap());
-        assert_eq!(0, script.log.len());
+        assert_eq!(0, script.writer.log.len());
     }
 
     //-------------------------------------------------------------------------
@@ -423,7 +409,7 @@ mod tests {
         let step = docs[0].as_hash().unwrap();
 
         script.run_step(&step);
-        assert_eq!("foo", script.log[0]);
+        assert_eq!("foo", script.writer.log[0]);
     }
 
     #[test]
@@ -434,7 +420,7 @@ mod tests {
 
         script.run_steps(&steps);
         assert_eq!(42, script.vars.get("a").unwrap().as_i64().unwrap());
-        assert_eq!("foo", script.log[0]);
+        assert_eq!("foo", script.writer.log[0]);
     }
 
     #[test]
