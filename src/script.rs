@@ -1,9 +1,8 @@
-mod conv;
+mod expr;
 mod var;
 mod writer;
 
-use eval::{Expr, Value};
-use regex::{Match, Regex};
+use eval::Value;
 use serde_json::Number;
 use std::fs;
 use var::Var;
@@ -74,8 +73,8 @@ impl Script {
 
     // - echo: <expression>
     fn do_echo(&mut self, yaml: &Yaml) {
-        let val = self.eval(yaml);
-        let val_str = self.value_to_string(val);
+        let val = expr::eval(yaml, &self.var.vars);
+        let val_str = expr::value_to_string(val);
         self.writer.write(val_str);
     }
 
@@ -93,7 +92,7 @@ impl Script {
     }
 
     fn is_truthy(&mut self, cond: &Yaml) -> bool {
-        match self.eval(cond) {
+        match expr::eval(cond, &self.var.vars) {
             Value::Bool(b) => b,
             Value::Number(n) => !self.is_zero(n),
             Value::String(s) => s.len() > 0,
@@ -174,68 +173,7 @@ impl Script {
             .get(&Yaml::from_str("message".into()))
             .unwrap_or(&def_yaml);
 
-        let val = self.yaml_to_value(message);
-        self.value_to_string(val)
-    }
-
-    //-------------------------------------------------------------------------
-
-    fn eval(&mut self, yaml: &Yaml) -> Value {
-        let val = self.yaml_to_value(yaml);
-
-        match val {
-            Value::String(s) => self.eval_expr(s),
-            _ => val,
-        }
-    }
-
-    fn eval_expr(&mut self, expr: String) -> Value {
-        let re = Regex::new(r"\$\{[a-zA-Z0-9_\.+\-\*/%=<>!&| ]*\}").unwrap();
-
-        match re.is_match(&expr) {
-            true => self.eval_tokens(expr, re),
-            false => Value::String(expr.into()),
-        }
-    }
-
-    fn eval_tokens(&mut self, expr: String, re: Regex) -> Value {
-        let mut buf = expr.clone();
-
-        while let Some(m) = re.find(&buf) {
-            buf.replace_range(m.start()..m.end(), self.eval_token(m).as_str());
-        }
-
-        self.yaml_to_value(&Yaml::from_str(&buf))
-    }
-
-    fn eval_token(&mut self, token: Match<'_>) -> String {
-        let expr_str = token.as_str().replace("${", "").replace("}", "");
-        let mut expr = Expr::new(expr_str);
-
-        for (name, val) in &self.var.vars {
-            expr = expr.value(name, val);
-        }
-
-        self.value_to_string(expr.exec().unwrap())
-    }
-
-    fn yaml_to_value(&mut self, yaml: &Yaml) -> Value {
-        match yaml {
-            Yaml::Boolean(b) => Value::Bool(*b),
-            Yaml::String(s) => Value::String(s.into()),
-            Yaml::Integer(i) => Value::Number((*i).into()),
-            Yaml::Real(_) => Value::Number(Number::from_f64(yaml.as_f64().unwrap()).unwrap()),
-            Yaml::Null => Value::Null,
-            // ...
-            _ => Value::String(format!("{yaml:?}")),
-        }
-    }
-
-    fn value_to_string(&mut self, val: Value) -> String {
-        match val {
-            Value::String(s) => s.as_str().into(),
-            _ => format!("{val}"),
-        }
+        expr::value_to_string(expr::yaml_to_value(message))
     }
 }
 
@@ -244,31 +182,6 @@ impl Script {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn eval() {
-        let mut script = Script::new(String::new(), None);
-        script.var.vars.insert("a".into(), Value::Number(1.into()));
-        script.var.vars.insert("b".into(), Value::Number(2.into()));
-
-        for e in vec![
-            ("0", Value::from(0)),
-            ("1.0", Value::from(1.0)),
-            ("true", Value::from(true)),
-            ("${a}", Value::from(1)),
-            ("${a + b}", Value::from(3)),
-            ("${a}, ${b}", Value::from("1, 2")),
-            ("a+b = ${a + b}", Value::from("a+b = 3")),
-            ("${a == 1}", Value::from(true)),
-            // ...
-        ] {
-            assert_eq!(e.1, script.eval(&Yaml::from_str(e.0)), "{e:?}");
-        }
-    }
-
-    //-------------------------------------------------------------------------
-
-    //-------------------------------------------------------------------------
 
     #[test]
     fn do_echo() {

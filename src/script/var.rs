@@ -1,4 +1,4 @@
-use super::conv;
+use super::expr;
 use eval::Value;
 use std::collections::HashMap;
 use yaml_rust2::Yaml;
@@ -16,7 +16,7 @@ impl Var {
 
     pub fn run(&mut self, name: &String, yaml: &Yaml) {
         // ???: Need validation. Name must be identifier.
-        let val = conv::yaml_to_value(yaml);
+        let val = expr::yaml_to_value(yaml);
         self.vars.insert(name.into(), val);
     }
 }
