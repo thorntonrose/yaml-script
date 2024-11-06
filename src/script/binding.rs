@@ -2,7 +2,7 @@ use eval::{Expr, Value};
 use regex::{Match, Regex};
 use serde_json::Number;
 use std::collections::HashMap;
-use yaml_rust2::Yaml;
+use yaml_rust2::{yaml::Hash, Yaml};
 
 pub struct Binding {
     vars: HashMap<String, Value>,
@@ -27,15 +27,7 @@ impl Binding {
 
     //-------------------------------------------------------------------------
 
-    // pub fn var(&mut self, name: String, yaml: &Yaml) {
-    pub fn var<S: Into<String>>(&mut self, name: S, yaml: &Yaml) {
-        // ???: Need validation. Name must be identifier.
-        self.set(name, Self::yaml_to_value(yaml));
-    }
-
-    //-------------------------------------------------------------------------
-
-    pub fn eval(&mut self, yaml: &Yaml) -> Value {
+    pub fn eval(&self, yaml: &Yaml) -> Value {
         let val = Self::yaml_to_value(yaml);
 
         match val {
@@ -44,7 +36,7 @@ impl Binding {
         }
     }
 
-    pub fn eval_expr(&mut self, expr: String) -> Value {
+    pub fn eval_expr(&self, expr: String) -> Value {
         let re = Regex::new(r"\$\{[a-zA-Z0-9_\.+\-\*/%=<>!&| ]*\}").unwrap();
 
         match re.is_match(&expr) {
@@ -53,7 +45,7 @@ impl Binding {
         }
     }
 
-    pub fn eval_tokens(&mut self, expr: String, re: Regex) -> Value {
+    pub fn eval_tokens(&self, expr: String, re: Regex) -> Value {
         let mut buf = expr.clone();
 
         while let Some(m) = re.find(&buf) {
@@ -63,7 +55,7 @@ impl Binding {
         Self::yaml_to_value(&Yaml::from_str(&buf))
     }
 
-    pub fn eval_token(&mut self, token: Match<'_>) -> String {
+    pub fn eval_token(&self, token: Match<'_>) -> String {
         let expr_str = token.as_str().replace("${", "").replace("}", "");
         let mut expr = Expr::new(expr_str);
 
@@ -72,6 +64,10 @@ impl Binding {
         }
 
         Self::value_to_string(expr.exec().unwrap())
+    }
+
+    pub fn eval_to_string(&self, yaml: &Yaml) -> String {
+        Binding::value_to_string(self.eval(yaml))
     }
 
     //-------------------------------------------------------------------------
@@ -94,19 +90,24 @@ impl Binding {
             _ => format!("{val}"),
         }
     }
+
+    pub fn hash_to_list(key: &str, step: &Hash) -> Vec<Yaml> {
+        step.get(&Yaml::from_str(key))
+            .expect(format!("expected '${key}'").as_str())
+            .clone()
+            .into_vec()
+            .expect("expected list")
+    }
+
+    pub fn is_zero(num: Number) -> bool {
+        (num.is_i64() && num.as_i64() == Some(0i64))
+            || (num.is_f64() && num.as_f64() == Some(0.0f64))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn var() {
-        let mut binding = Binding::new();
-
-        binding.var("a", &Yaml::from_str("42"));
-        assert_eq!(42, binding.get("a"));
-    }
 
     #[test]
     fn eval() {

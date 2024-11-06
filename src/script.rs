@@ -1,4 +1,7 @@
 mod binding;
+mod echo;
+mod r#if;
+mod var;
 mod writer;
 
 use binding::Binding;
@@ -59,22 +62,13 @@ impl Script {
         let key = token.0.as_str().unwrap();
 
         match key {
-            "echo" => self.do_echo(token.1),
-            "if" => self.do_if(token.1, step),
+            "echo" => echo::run(self, token.1),
+            "if" => r#if::run(self, token.1, step),
             "while" => self.do_while(token.1, step),
             "break" => self.do_break(token.1, step),
             "each" => self.do_each(token.1, step),
-            _ => self.binding.var(key, token.1),
+            _ => var::run(self, key, token.1),
         }
-    }
-
-    //-------------------------------------------------------------------------
-
-    // - echo: <expression>
-    fn do_echo(&mut self, yaml: &Yaml) {
-        let val = self.binding.eval(yaml);
-        let val_str = Binding::value_to_string(val);
-        self.writer.write(val_str);
     }
 
     //-------------------------------------------------------------------------
@@ -84,11 +78,11 @@ impl Script {
     //   [else: <steps>]
     //
     // condition = <bool> | !0 | !""
-    fn do_if(&mut self, cond: &Yaml, step: &Hash) {
-        let key = if self.is_truthy(cond) { "then" } else { "else" };
-        let steps = self.get_list(key, step);
-        self.run_steps(&steps);
-    }
+    // fn do_if(&mut self, cond: &Yaml, step: &Hash) {
+    //     let key = if self.is_truthy(cond) { "then" } else { "else" };
+    //     let steps = self.get_list(key, step);
+    //     self.run_steps(&steps);
+    // }
 
     fn is_truthy(&mut self, cond: &Yaml) -> bool {
         match self.binding.eval(cond) {
@@ -143,7 +137,7 @@ impl Script {
         let steps = self.get_list("do", step);
 
         for item in items {
-            self.binding.var(var_name, &item);
+            var::run(self, var_name, &item);
             self.run_steps(&steps);
 
             if self.break_opt.is_some() {
@@ -180,53 +174,6 @@ impl Script {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn do_echo() {
-        let mut script = Script::new(String::new(), Some(Vec::new()));
-        script.binding.set("a", Value::Number(41.into()));
-
-        script.do_echo(&Yaml::from_str("answer: ${a + 1}"));
-        assert_eq!("answer: 42", script.writer.log[0]);
-    }
-
-    //-------------------------------------------------------------------------
-
-    #[test]
-    fn is_truthy() {
-        let mut script = Script::new(String::new(), None);
-
-        for e in vec![
-            (&Yaml::from_str("true"), true),
-            (&Yaml::from_str("false"), false),
-            (&Yaml::from_str("1"), true),
-            (&Yaml::from_str("0"), false),
-            (&Yaml::from_str("foo"), true),
-            (&Yaml::String("".into()), false),
-        ] {
-            assert_eq!(e.1, script.is_truthy(e.0), "{e:?}");
-        }
-    }
-
-    #[test]
-    fn do_if_then() {
-        let mut script = Script::new(String::new(), None);
-        let docs = YamlLoader::load_from_str("then: [a: 42]").unwrap();
-
-        script.do_if(&Yaml::from_str("true"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, script.binding.get("a"));
-    }
-
-    #[test]
-    fn do_if_else() {
-        let mut script = Script::new(String::new(), None);
-        let docs = YamlLoader::load_from_str("else: [a: 42]").unwrap();
-
-        script.do_if(&Yaml::from_str("false"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, script.binding.get("a"));
-    }
-
-    //-------------------------------------------------------------------------
 
     #[test]
     fn do_while() {
