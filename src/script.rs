@@ -1,26 +1,29 @@
+mod conv;
+mod var;
 mod writer;
 
 use eval::{Expr, Value};
 use regex::{Match, Regex};
 use serde_json::Number;
-use std::{collections::HashMap, fs};
+use std::fs;
+use var::Var;
 use writer::Writer;
 use yaml_rust2::{yaml::Hash, Yaml, YamlLoader};
 
 pub struct Script {
     pub path: String,
-    pub vars: HashMap<String, Value>,
     pub writer: Writer,
     pub break_opt: Option<String>,
+    var: Var,
 }
 
 impl Script {
-    pub fn new(path: String, log_opt: Option<Vec<String>>) -> Self {
+    pub fn new(path: String, log: Option<Vec<String>>) -> Self {
         Self {
             path,
-            vars: HashMap::new(),
-            writer: Writer::new(log_opt),
+            writer: Writer::new(log),
             break_opt: None,
+            var: Var::new(),
         }
     }
 
@@ -63,18 +66,8 @@ impl Script {
             "while" => self.do_while(token.1, step),
             "break" => self.do_break(token.1, step),
             "each" => self.do_each(token.1, step),
-            // ...
-            _ => self.do_var(&key.into(), token.1),
+            _ => self.var.run(&key.into(), token.1),
         }
-    }
-
-    //-------------------------------------------------------------------------
-
-    // - <name>: <value>
-    fn do_var(&mut self, name: &String, yaml: &Yaml) {
-        // ???: Need validation. Name must be indentifier.
-        let val = self.yaml_to_value(yaml);
-        self.vars.insert(name.into(), val);
     }
 
     //-------------------------------------------------------------------------
@@ -83,13 +76,8 @@ impl Script {
     fn do_echo(&mut self, yaml: &Yaml) {
         let val = self.eval(yaml);
         let val_str = self.value_to_string(val);
-        // self.write(val_str);
         self.writer.write(val_str);
     }
-
-    // fn write(&mut self, val: String) {
-    //     (self.writer)(&mut self.log, val);
-    // }
 
     //-------------------------------------------------------------------------
 
@@ -157,7 +145,7 @@ impl Script {
         let steps = self.get_list("do", step);
 
         for item in items {
-            self.do_var(&var_name, &item);
+            self.var.run(&var_name, &item);
             self.run_steps(&steps);
 
             if self.break_opt.is_some() {
@@ -224,7 +212,7 @@ impl Script {
         let expr_str = token.as_str().replace("${", "").replace("}", "");
         let mut expr = Expr::new(expr_str);
 
-        for (name, val) in &self.vars {
+        for (name, val) in &self.var.vars {
             expr = expr.value(name, val);
         }
 
@@ -260,8 +248,8 @@ mod tests {
     #[test]
     fn eval() {
         let mut script = Script::new(String::new(), None);
-        script.vars.insert("a".into(), Value::Number(1.into()));
-        script.vars.insert("b".into(), Value::Number(2.into()));
+        script.var.vars.insert("a".into(), Value::Number(1.into()));
+        script.var.vars.insert("b".into(), Value::Number(2.into()));
 
         for e in vec![
             ("0", Value::from(0)),
@@ -280,21 +268,12 @@ mod tests {
 
     //-------------------------------------------------------------------------
 
-    #[test]
-    fn do_var() {
-        let mut script = Script::new(String::new(), None);
-        let key = "a".to_string();
-
-        script.do_var(&key, &Yaml::from_str("42"));
-        assert_eq!(42, *script.vars.get(&key).unwrap());
-    }
-
     //-------------------------------------------------------------------------
 
     #[test]
     fn do_echo() {
         let mut script = Script::new(String::new(), Some(Vec::new()));
-        script.vars.insert("a".into(), Value::Number(41.into()));
+        script.var.vars.insert("a".into(), Value::Number(41.into()));
 
         script.do_echo(&Yaml::from_str("answer: ${a + 1}"));
         assert_eq!("answer: 42", script.writer.log[0]);
@@ -324,7 +303,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("then: [a: 42]").unwrap();
 
         script.do_if(&Yaml::from_str("true"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, *script.vars.get("a").unwrap());
+        assert_eq!(42, *script.var.vars.get("a").unwrap());
     }
 
     #[test]
@@ -333,7 +312,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("else: [a: 42]").unwrap();
 
         script.do_if(&Yaml::from_str("false"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, *script.vars.get("a").unwrap());
+        assert_eq!(42, *script.var.vars.get("a").unwrap());
     }
 
     //-------------------------------------------------------------------------
@@ -342,10 +321,10 @@ mod tests {
     fn do_while() {
         let mut script = Script::new(String::new(), None);
         let docs = YamlLoader::load_from_str("do: [a: 42]").unwrap();
-        script.vars.insert("a".into(), Value::Number(1.into()));
+        script.var.vars.insert("a".into(), Value::Number(1.into()));
 
         script.do_while(&Yaml::from_str("${a == 1}"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, *script.vars.get("a").unwrap());
+        assert_eq!(42, *script.var.vars.get("a").unwrap());
     }
 
     #[test]
@@ -365,7 +344,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("{in: [1, 2], do: [echo: '${x}']}").unwrap();
 
         script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
-        assert_eq!(2, *script.vars.get("x").unwrap());
+        assert_eq!(2, *script.var.vars.get("x").unwrap());
         assert_eq!("1", script.writer.log[0]);
         assert_eq!("2", script.writer.log[1]);
     }
@@ -376,7 +355,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("{in: [1, 2], do: [break: true]}").unwrap();
 
         script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
-        assert_eq!(1, *script.vars.get("x").unwrap());
+        assert_eq!(1, *script.var.vars.get("x").unwrap());
         assert_eq!(0, script.writer.log.len());
     }
 
@@ -404,6 +383,7 @@ mod tests {
 
     #[test]
     fn run_step() {
+        // ???: Need to run each step type?
         let mut script = Script::new(String::new(), Some(Vec::new()));
         let docs = YamlLoader::load_from_str("echo: foo").unwrap();
         let step = docs[0].as_hash().unwrap();
@@ -419,7 +399,7 @@ mod tests {
         let steps = docs[0].as_vec().unwrap();
 
         script.run_steps(&steps);
-        assert_eq!(42, script.vars.get("a").unwrap().as_i64().unwrap());
+        assert_eq!(42, script.var.vars.get("a").unwrap().as_i64().unwrap());
         assert_eq!("foo", script.writer.log[0]);
     }
 
