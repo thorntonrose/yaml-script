@@ -1,11 +1,10 @@
-mod expr;
-mod var;
+mod binding;
 mod writer;
 
+use binding::Binding;
 use eval::Value;
 use serde_json::Number;
 use std::fs;
-use var::Var;
 use writer::Writer;
 use yaml_rust2::{yaml::Hash, Yaml, YamlLoader};
 
@@ -13,7 +12,7 @@ pub struct Script {
     pub path: String,
     pub writer: Writer,
     pub break_opt: Option<String>,
-    var: Var,
+    pub binding: Binding,
 }
 
 impl Script {
@@ -22,7 +21,7 @@ impl Script {
             path,
             writer: Writer::new(log),
             break_opt: None,
-            var: Var::new(),
+            binding: Binding::new(),
         }
     }
 
@@ -65,7 +64,7 @@ impl Script {
             "while" => self.do_while(token.1, step),
             "break" => self.do_break(token.1, step),
             "each" => self.do_each(token.1, step),
-            _ => self.var.run(&key.into(), token.1),
+            _ => self.binding.var(key, token.1),
         }
     }
 
@@ -73,8 +72,8 @@ impl Script {
 
     // - echo: <expression>
     fn do_echo(&mut self, yaml: &Yaml) {
-        let val = expr::eval(yaml, &self.var.vars);
-        let val_str = expr::value_to_string(val);
+        let val = self.binding.eval(yaml);
+        let val_str = Binding::value_to_string(val);
         self.writer.write(val_str);
     }
 
@@ -92,7 +91,7 @@ impl Script {
     }
 
     fn is_truthy(&mut self, cond: &Yaml) -> bool {
-        match expr::eval(cond, &self.var.vars) {
+        match self.binding.eval(cond) {
             Value::Bool(b) => b,
             Value::Number(n) => !self.is_zero(n),
             Value::String(s) => s.len() > 0,
@@ -137,14 +136,14 @@ impl Script {
     // - each: <var>
     //   in: <list>
     //   do: <steps>
-    fn do_each(&mut self, var: &Yaml, step: &Hash) {
-        // ???: Need validation. Name must be indentifier.
-        let var_name = var.as_str().expect("expected string").to_string();
+    fn do_each(&mut self, name: &Yaml, step: &Hash) {
+        // ???: Need validation. Name must be identifier.
+        let var_name = name.as_str().expect("expected string");
         let items = self.get_list("in", step);
         let steps = self.get_list("do", step);
 
         for item in items {
-            self.var.run(&var_name, &item);
+            self.binding.var(var_name, &item);
             self.run_steps(&steps);
 
             if self.break_opt.is_some() {
@@ -168,12 +167,11 @@ impl Script {
     }
 
     fn message_string(&mut self, step: &Hash, def: &str) -> String {
+        let message = Yaml::from_str("message".into());
         let def_yaml = Yaml::from_str(&def);
-        let message = step
-            .get(&Yaml::from_str("message".into()))
-            .unwrap_or(&def_yaml);
+        let message_yaml = step.get(&message).unwrap_or(&def_yaml);
 
-        expr::value_to_string(expr::yaml_to_value(message))
+        Binding::value_to_string(Binding::yaml_to_value(message_yaml))
     }
 }
 
@@ -186,7 +184,7 @@ mod tests {
     #[test]
     fn do_echo() {
         let mut script = Script::new(String::new(), Some(Vec::new()));
-        script.var.vars.insert("a".into(), Value::Number(41.into()));
+        script.binding.set("a", Value::Number(41.into()));
 
         script.do_echo(&Yaml::from_str("answer: ${a + 1}"));
         assert_eq!("answer: 42", script.writer.log[0]);
@@ -216,7 +214,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("then: [a: 42]").unwrap();
 
         script.do_if(&Yaml::from_str("true"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, *script.var.vars.get("a").unwrap());
+        assert_eq!(42, script.binding.get("a"));
     }
 
     #[test]
@@ -225,7 +223,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("else: [a: 42]").unwrap();
 
         script.do_if(&Yaml::from_str("false"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, *script.var.vars.get("a").unwrap());
+        assert_eq!(42, script.binding.get("a"));
     }
 
     //-------------------------------------------------------------------------
@@ -234,10 +232,10 @@ mod tests {
     fn do_while() {
         let mut script = Script::new(String::new(), None);
         let docs = YamlLoader::load_from_str("do: [a: 42]").unwrap();
-        script.var.vars.insert("a".into(), Value::Number(1.into()));
+        script.binding.set("a", Value::Number(1.into()));
 
         script.do_while(&Yaml::from_str("${a == 1}"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, *script.var.vars.get("a").unwrap());
+        assert_eq!(42, script.binding.get("a"));
     }
 
     #[test]
@@ -257,7 +255,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("{in: [1, 2], do: [echo: '${x}']}").unwrap();
 
         script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
-        assert_eq!(2, *script.var.vars.get("x").unwrap());
+        assert_eq!(2, script.binding.get("x"));
         assert_eq!("1", script.writer.log[0]);
         assert_eq!("2", script.writer.log[1]);
     }
@@ -268,7 +266,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("{in: [1, 2], do: [break: true]}").unwrap();
 
         script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
-        assert_eq!(1, *script.var.vars.get("x").unwrap());
+        assert_eq!(1, script.binding.get("x"));
         assert_eq!(0, script.writer.log.len());
     }
 
@@ -312,7 +310,7 @@ mod tests {
         let steps = docs[0].as_vec().unwrap();
 
         script.run_steps(&steps);
-        assert_eq!(42, script.var.vars.get("a").unwrap().as_i64().unwrap());
+        assert_eq!(42, script.binding.get("a").as_i64().unwrap());
         assert_eq!("foo", script.writer.log[0]);
     }
 
