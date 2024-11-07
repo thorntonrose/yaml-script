@@ -2,11 +2,10 @@ mod binding;
 mod echo;
 mod r#if;
 mod var;
+mod r#while;
 mod writer;
 
 use binding::Binding;
-use eval::Value;
-use serde_json::Number;
 use std::fs;
 use writer::Writer;
 use yaml_rust2::{yaml::Hash, Yaml, YamlLoader};
@@ -64,64 +63,10 @@ impl Script {
         match key {
             "echo" => echo::run(self, token.1),
             "if" => r#if::run(self, token.1, step),
-            "while" => self.do_while(token.1, step),
+            "while" => r#while::run(self, token.1, step),
             "break" => self.do_break(token.1, step),
             "each" => self.do_each(token.1, step),
             _ => var::run(self, key, token.1),
-        }
-    }
-
-    //-------------------------------------------------------------------------
-
-    // - if: <condition>
-    //   [then: <steps>]
-    //   [else: <steps>]
-    //
-    // condition = <bool> | !0 | !""
-    // fn do_if(&mut self, cond: &Yaml, step: &Hash) {
-    //     let key = if self.is_truthy(cond) { "then" } else { "else" };
-    //     let steps = self.get_list(key, step);
-    //     self.run_steps(&steps);
-    // }
-
-    fn is_truthy(&mut self, cond: &Yaml) -> bool {
-        match self.binding.eval(cond) {
-            Value::Bool(b) => b,
-            Value::Number(n) => !self.is_zero(n),
-            Value::String(s) => s.len() > 0,
-            // ???: more?
-            _ => false,
-        }
-    }
-
-    fn is_zero(&mut self, num: Number) -> bool {
-        (num.is_i64() && num.as_i64() == Some(0i64))
-            || (num.is_f64() && num.as_f64() == Some(0.0f64))
-    }
-
-    fn get_list(&mut self, key: &str, step: &Hash) -> Vec<Yaml> {
-        step.get(&Yaml::from_str(key))
-            .expect(format!("expected '${key}'").as_str())
-            .clone()
-            .into_vec()
-            .expect("expected list")
-    }
-
-    //-------------------------------------------------------------------------
-
-    // - while: <truthy-expression>
-    //   do:
-    //     <steps>
-    fn do_while(&mut self, cond: &Yaml, step: &Hash) {
-        let steps = self.get_list("do", step);
-
-        while self.is_truthy(cond) {
-            self.run_steps(&steps);
-
-            if self.break_opt.is_some() {
-                self.break_opt = None;
-                break;
-            }
         }
     }
 
@@ -133,8 +78,8 @@ impl Script {
     fn do_each(&mut self, name: &Yaml, step: &Hash) {
         // ???: Need validation. Name must be identifier.
         let var_name = name.as_str().expect("expected string");
-        let items = self.get_list("in", step);
-        let steps = self.get_list("do", step);
+        let items = Binding::hash_to_list("in", step);
+        let steps = Binding::hash_to_list("do", step);
 
         for item in items {
             var::run(self, var_name, &item);
@@ -152,9 +97,7 @@ impl Script {
     // - break: [<condition>]
     //   [message: <string>]
     fn do_break(&mut self, cond: &Yaml, step: &Hash) {
-        let truthy = self.is_truthy(cond);
-
-        if truthy {
+        if self.binding.is_truthy(cond) {
             let message = self.message_string(step, "(break)");
             self.break_opt = Some(message);
         }
@@ -174,27 +117,6 @@ impl Script {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn do_while() {
-        let mut script = Script::new(String::new(), None);
-        let docs = YamlLoader::load_from_str("do: [a: 42]").unwrap();
-        script.binding.set("a", Value::Number(1.into()));
-
-        script.do_while(&Yaml::from_str("${a == 1}"), &docs[0].as_hash().unwrap());
-        assert_eq!(42, script.binding.get("a"));
-    }
-
-    #[test]
-    fn do_while_break() {
-        let mut script = Script::new(String::new(), None);
-        let docs = YamlLoader::load_from_str("do: [break: true]").unwrap();
-
-        script.do_while(&Yaml::from_str("true"), &docs[0].as_hash().unwrap());
-        assert!(script.break_opt.is_none());
-    }
-
-    //-------------------------------------------------------------------------
 
     #[test]
     fn do_each() {
@@ -259,6 +181,17 @@ mod tests {
         script.run_steps(&steps);
         assert_eq!(42, script.binding.get("a").as_i64().unwrap());
         assert_eq!("foo", script.writer.log[0]);
+    }
+
+    //-------------------------------------------------------------------------
+
+    #[test]
+    fn run_docs_while_break() {
+        let mut script = Script::new(String::new(), None);
+        let docs = YamlLoader::load_from_str("[{while: true, do: [break: true]}]").unwrap();
+
+        script.run_docs(docs);
+        assert!(script.break_opt.is_none());
     }
 
     #[test]

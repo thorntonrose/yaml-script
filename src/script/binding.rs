@@ -27,6 +27,16 @@ impl Binding {
 
     //-------------------------------------------------------------------------
 
+    pub fn is_truthy(&self, cond: &Yaml) -> bool {
+        match self.eval(cond) {
+            Value::Bool(b) => b,
+            Value::Number(n) => !Binding::is_zero(n),
+            Value::String(s) => !s.is_empty(),
+            // ???: more?
+            _ => false,
+        }
+    }
+
     pub fn eval(&self, yaml: &Yaml) -> Value {
         let val = Self::yaml_to_value(yaml);
 
@@ -127,6 +137,22 @@ mod tests {
             // ...
         ] {
             assert_eq!(e.1, binding.eval(&Yaml::from_str(e.0)), "{e:?}");
+        }
+    }
+
+    #[test]
+    fn is_truthy() {
+        let binding = Binding::new();
+
+        for e in vec![
+            (&Yaml::from_str("true"), true),
+            (&Yaml::from_str("false"), false),
+            (&Yaml::from_str("1"), true),
+            (&Yaml::from_str("0"), false),
+            (&Yaml::from_str("foo"), true),
+            (&Yaml::String("".into()), false),
+        ] {
+            assert_eq!(e.1, binding.is_truthy(e.0), "{e:?}");
         }
     }
 }

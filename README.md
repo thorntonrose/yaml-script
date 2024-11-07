@@ -115,7 +115,7 @@ call:
 
 condition:
 ```
-<boolean> | <integer> | <float> | <string> | <expression>
+<expression>
 ```
 
 (true = true | !0 | !0.0 | !"")
