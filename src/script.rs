@@ -1,4 +1,5 @@
 mod binding;
+mod each;
 mod echo;
 mod r#if;
 mod var;
@@ -36,7 +37,7 @@ impl Script {
 
     fn run_docs(&mut self, docs: Vec<Yaml>) {
         for doc in docs {
-            self.run_steps(doc.as_vec().unwrap());
+            self.run_steps(doc.as_vec().expect("expected list"));
 
             if let Some(s) = &self.break_opt {
                 panic!("{s}");
@@ -64,31 +65,9 @@ impl Script {
             "echo" => echo::run(self, token.1),
             "if" => r#if::run(self, token.1, step),
             "while" => r#while::run(self, token.1, step),
+            "each" => each::run(self, token.1, step),
             "break" => self.do_break(token.1, step),
-            "each" => self.do_each(token.1, step),
             _ => var::run(self, key, token.1),
-        }
-    }
-
-    //-------------------------------------------------------------------------
-
-    // - each: <var>
-    //   in: <list>
-    //   do: <steps>
-    fn do_each(&mut self, name: &Yaml, step: &Hash) {
-        // ???: Need validation. Name must be identifier.
-        let var_name = name.as_str().expect("expected string");
-        let items = Binding::hash_to_list("in", step);
-        let steps = Binding::hash_to_list("do", step);
-
-        for item in items {
-            var::run(self, var_name, &item);
-            self.run_steps(&steps);
-
-            if self.break_opt.is_some() {
-                self.break_opt = None;
-                break;
-            }
         }
     }
 
@@ -117,29 +96,6 @@ impl Script {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn do_each() {
-        let mut script = Script::new(String::new(), Some(Vec::new()));
-        let docs = YamlLoader::load_from_str("{in: [1, 2], do: [echo: '${x}']}").unwrap();
-
-        script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
-        assert_eq!(2, script.binding.get("x"));
-        assert_eq!("1", script.writer.log[0]);
-        assert_eq!("2", script.writer.log[1]);
-    }
-
-    #[test]
-    fn do_each_break() {
-        let mut script = Script::new(String::new(), Some(Vec::new()));
-        let docs = YamlLoader::load_from_str("{in: [1, 2], do: [break: true]}").unwrap();
-
-        script.do_each(&Yaml::from_str("x"), &docs[0].as_hash().unwrap());
-        assert_eq!(1, script.binding.get("x"));
-        assert_eq!(0, script.writer.log.len());
-    }
-
-    //-------------------------------------------------------------------------
 
     #[test]
     fn do_break() {
@@ -189,6 +145,15 @@ mod tests {
     fn run_docs_while_break() {
         let mut script = Script::new(String::new(), None);
         let docs = YamlLoader::load_from_str("[{while: true, do: [break: true]}]").unwrap();
+
+        script.run_docs(docs);
+        assert!(script.break_opt.is_none());
+    }
+
+    #[test]
+    fn run_docs_each_break() {
+        let mut script = Script::new(String::new(), None);
+        let docs = YamlLoader::load_from_str("[{each: x, in: [1, 2], do: [break: true]}]").unwrap();
 
         script.run_docs(docs);
         assert!(script.break_opt.is_none());
