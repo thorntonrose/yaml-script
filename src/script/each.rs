@@ -1,24 +1,35 @@
 use super::{binding::Binding, var, Script};
+use std::io::{Error, ErrorKind::Interrupted};
 use yaml_rust2::{yaml::Hash, Yaml};
 
 // - each: <var>
 //   in: <list>
 //   do: <steps>
-pub fn run(script: &mut Script, name: &Yaml, step: &Hash) {
-    // ???: Need validation. Name must be identifier.
-    let var_name = name.as_str().expect("expected string");
-    let items = Binding::hash_to_list("in", step);
-    let steps = Binding::hash_to_list("do", step);
-
-    for item in items {
-        var::run(script, var_name, &item);
-        script.run_steps(&steps);
-
-        if script.break_opt.is_some() {
-            script.break_opt = None;
-            break;
-        }
+pub fn run(script: &mut Script, name: &Yaml, step: &Hash) -> Result<(), Error> {
+    match run_steps(
+        script,
+        // ???: Need validation. Name must be identifier.
+        name.as_str().expect("expected string"),
+        &Binding::hash_to_list("in", step),
+        &Binding::hash_to_list("do", step),
+    ) {
+        Err(e) if e.kind() == Interrupted => Ok(()),
+        r => r,
     }
+}
+
+pub fn run_steps(
+    script: &mut Script,
+    name: &str,
+    items: &Vec<Yaml>,
+    steps: &Vec<Yaml>,
+) -> Result<(), Error> {
+    for item in items {
+        var::run(script, name, &item)?;
+        script.run_steps(steps)?;
+    }
+
+    Ok(())
 }
 
 //=============================================================================
@@ -34,7 +45,7 @@ mod tests {
         let docs = YamlLoader::load_from_str("{in: [1, 2], do: [echo: '${x}']}").unwrap();
         let hash = docs[0].as_hash().unwrap();
 
-        super::run(&mut script, &Yaml::from_str("x"), &hash);
+        super::run(&mut script, &Yaml::from_str("x"), &hash).unwrap();
         assert_eq!(2, script.binding.get("x"));
         assert_eq!("1", script.writer.log[0]);
         assert_eq!("2", script.writer.log[1]);
