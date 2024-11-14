@@ -48,7 +48,7 @@ steps:
 
 step:
 ```
-<var> | <echo> | <if> | <while> | <each> | <break> | <exec> | <def> | <call>
+<var> | <echo> | <if> | <while> | <each> | <break> | <exec> | <def> | <call> | <exit>
 ```
 
 (`<exec>`, `<def>`, and `<call>` are not yet implemented.)
@@ -100,9 +100,10 @@ exec:
 def:
 ```
 - def: <name>
-  [do: <script>]
-# note: parameters are received as 'with.<name>'
+  do: <steps>
 ```
+
+(Parameters are received as 'with.\<param-name>'.)
 
 call:
 ```
@@ -111,6 +112,11 @@ call:
       <name>: <expression>
       ...]
   [as: <name>]
+```
+
+exit:
+```
+- exit: <number-expression>
 ```
 
 condition:

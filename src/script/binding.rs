@@ -80,6 +80,10 @@ impl Binding {
         Binding::value_to_string(self.eval(yaml))
     }
 
+    pub fn eval_to_i32(&self, yaml: &Yaml) -> i32 {
+        Binding::value_to_i32(self.eval(yaml))
+    }
+
     //-------------------------------------------------------------------------
 
     pub fn yaml_to_value(yaml: &Yaml) -> Value {
@@ -99,6 +103,13 @@ impl Binding {
             Value::String(s) => s.as_str().into(),
             _ => format!("{val}"),
         }
+    }
+
+    pub fn value_to_i32(val: Value) -> i32 {
+        val.as_i64()
+            .expect("expected number")
+            .try_into()
+            .unwrap_or(0)
     }
 
     pub fn hash_to_list(key: &str, step: &Hash) -> Vec<Yaml> {

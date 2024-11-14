@@ -1,6 +1,5 @@
-use std::io::Error;
-
 use super::Script;
+use std::io::Error;
 use yaml_rust2::Yaml;
 
 // - echo: <expression>

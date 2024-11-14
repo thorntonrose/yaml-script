@@ -2,6 +2,7 @@ mod binding;
 mod r#break;
 mod each;
 mod echo;
+mod exit;
 mod r#if;
 mod var;
 mod r#while;
@@ -15,28 +16,30 @@ use yaml_rust2::{yaml::Hash, Yaml, YamlLoader};
 
 pub struct Script {
     pub path: String,
-    pub writer: Writer,
     pub binding: Binding,
+    pub writer: Writer,
 }
 
 impl Script {
     pub fn new(path: String, log: Option<Vec<String>>) -> Self {
         Self {
             path,
-            writer: Writer::new(log),
             binding: Binding::new(),
+            writer: Writer::new(log),
         }
     }
 
     //-------------------------------------------------------------------------
 
     pub fn run(&mut self) -> Result<(), Error> {
-        let text = fs::read_to_string(&self.path).unwrap();
-
-        match self.run_docs(YamlLoader::load_from_str(&text).unwrap()) {
+        match self.run_docs(self.load()) {
             Err(e) if e.kind() == Interrupted => echo::write(self, e.to_string()),
             r => r,
         }
+    }
+
+    fn load(&self) -> Vec<Yaml> {
+        YamlLoader::load_from_str(&fs::read_to_string(&self.path).unwrap()).unwrap()
     }
 
     fn run_docs(&mut self, docs: Vec<Yaml>) -> Result<(), Error> {
@@ -56,18 +59,18 @@ impl Script {
     }
 
     fn run_step(&mut self, step: &Hash) -> Result<(), Error> {
-        // ???: Need better option for verbose.
-        // println!("{step:?}");
-        let token = step.iter().next().unwrap();
-        let key = token.0.as_str().unwrap();
+        // example: ("echo", 1)
+        let entry = step.iter().next().unwrap();
+        let name = entry.0.as_str().unwrap();
 
-        match key {
-            "echo" => echo::run(self, token.1),
-            "if" => r#if::run(self, token.1, step),
-            "while" => r#while::run(self, token.1, step),
-            "each" => each::run(self, token.1, step),
-            "break" => r#break::run(self, token.1, step),
-            _ => var::run(self, key, token.1),
+        match name {
+            "echo" => echo::run(self, entry.1),
+            "if" => r#if::run(self, entry.1, step),
+            "while" => r#while::run(self, entry.1, step),
+            "each" => each::run(self, entry.1, step),
+            "break" => r#break::run(self, entry.1, step),
+            "exit" => exit::run(self, entry.1),
+            _ => var::run(self, name, entry.1),
         }
     }
 }
