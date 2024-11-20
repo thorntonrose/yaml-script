@@ -3,8 +3,8 @@ use std::io::Error;
 use yaml_rust2::Yaml;
 
 // - echo: <expression>
-pub fn run(script: &mut Script, yaml: &Yaml) -> Result<(), Error> {
-    write(script, script.binding.eval_to_string(yaml))
+pub fn run(script: &mut Script, expr: &Yaml) -> Result<(), Error> {
+    write(script, script.binding.eval_to_string(expr))
 }
 
 pub fn write(script: &mut Script, s: String) -> Result<(), Error> {

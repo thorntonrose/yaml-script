@@ -1,0 +1,3 @@
+- exec: pwd -L
+  as: out
+- echo: "PWD: ${out}"

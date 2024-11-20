@@ -59,7 +59,7 @@ impl Binding {
         let mut buf = expr.clone();
 
         while let Some(m) = re.find(&buf) {
-            buf.replace_range(m.start()..m.end(), self.eval_token(m).as_str());
+            buf.replace_range(m.start()..m.end(), &self.eval_token(m));
         }
 
         Self::yaml_to_value(&Yaml::from_str(&buf))
@@ -100,7 +100,7 @@ impl Binding {
 
     pub fn value_to_string(val: Value) -> String {
         match val {
-            Value::String(s) => s.as_str().into(),
+            Value::String(s) => s,
             _ => format!("{val}"),
         }
     }
@@ -112,9 +112,9 @@ impl Binding {
             .unwrap_or(0)
     }
 
-    pub fn hash_to_list(key: &str, step: &Hash) -> Vec<Yaml> {
+    pub fn entry_to_list(step: &Hash, key: &str) -> Vec<Yaml> {
         step.get(&Yaml::from_str(key))
-            .expect(format!("expected '${key}'").as_str())
+            .expect(&format!("expected '${key}'"))
             .clone()
             .into_vec()
             .expect("expected list")

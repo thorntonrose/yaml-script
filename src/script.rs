@@ -2,6 +2,7 @@ mod binding;
 mod r#break;
 mod each;
 mod echo;
+mod exec;
 mod exit;
 mod r#if;
 mod var;
@@ -65,6 +66,7 @@ impl Script {
 
         match name {
             "echo" => echo::run(self, entry.1),
+            "exec" => exec::run(self, entry.1, step),
             "if" => r#if::run(self, entry.1, step),
             "while" => r#while::run(self, entry.1, step),
             "each" => each::run(self, entry.1, step),

@@ -7,7 +7,7 @@ use yaml_rust2::{yaml::Hash, Yaml};
 //   do:
 //     <steps>
 pub fn run(script: &mut Script, cond: &Yaml, step: &Hash) -> Result<(), Error> {
-    match run_steps(script, cond, &Binding::hash_to_list("do", step)) {
+    match run_steps(script, cond, &Binding::entry_to_list(step, "do")) {
         Err(e) if e.kind() == Interrupted => Ok(()),
         r => r,
     }

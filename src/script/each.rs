@@ -10,8 +10,8 @@ pub fn run(script: &mut Script, name: &Yaml, step: &Hash) -> Result<(), Error> {
         script,
         // ???: Need validation. Name must be identifier.
         name.as_str().expect("expected string"),
-        &Binding::hash_to_list("in", step),
-        &Binding::hash_to_list("do", step),
+        &Binding::entry_to_list(step, "in"),
+        &Binding::entry_to_list(step, "do"),
     ) {
         Err(e) if e.kind() == Interrupted => Ok(()),
         r => r,

@@ -93,8 +93,8 @@ break:
 
 exec:
 ```
-- exec: <command>
-  as: <name>
+- exec: <expression>
+  [as: <name>]
 ```
 
 def:

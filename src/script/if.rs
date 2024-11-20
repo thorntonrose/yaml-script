@@ -11,7 +11,7 @@ use yaml_rust2::{yaml::Hash, Yaml};
 // condition = <expression> where true = true | !0 | !0.0 | !""
 pub fn run(script: &mut Script, cond: &Yaml, step: &Hash) -> Result<(), Error> {
     let key = ternary!(script.binding.is_truthy(cond), "then", "else");
-    script.run_steps(&Binding::hash_to_list(key, step))
+    script.run_steps(&Binding::entry_to_list(step, key))
 }
 
 //=============================================================================

@@ -2,13 +2,13 @@ use super::Script;
 use std::{io::Error, process::exit};
 use yaml_rust2::Yaml;
 
-pub fn run(script: &Script, yaml: &Yaml) -> Result<(), Error> {
-    run_step(script, yaml, exit)
+pub fn run(script: &Script, code: &Yaml) -> Result<(), Error> {
+    run_step(script, code, exit)
 }
 
 #[allow(unreachable_code)]
-pub fn run_step(script: &Script, yaml: &Yaml, halt: fn(i32) -> !) -> Result<(), Error> {
-    halt(script.binding.eval_to_i32(yaml));
+fn run_step(script: &Script, code: &Yaml, halt: fn(i32) -> !) -> Result<(), Error> {
+    halt(script.binding.eval_to_i32(code));
     Ok(())
 }
 
