@@ -51,7 +51,7 @@ step:
 <var> | <echo> | <if> | <while> | <each> | <break> | <exec> | <def> | <call> | <exit>
 ```
 
-(`<exec>`, `<def>`, and `<call>` are not yet implemented.)
+(`<def>` and `<call>` are not yet implemented.)
 
 var:
 ```
