@@ -1,10 +1,12 @@
 mod binding;
 mod r#break;
+mod def;
 mod each;
 mod echo;
 mod exec;
 mod exit;
 mod r#if;
+mod step;
 mod var;
 mod r#while;
 mod writer;
@@ -13,7 +15,7 @@ use binding::Binding;
 use std::fs;
 use std::io::{Error, ErrorKind::Interrupted};
 use writer::Writer;
-use yaml_rust2::{yaml::Hash, Yaml, YamlLoader};
+use yaml_rust2::{Yaml, YamlLoader};
 
 pub struct Script {
     pub path: String,
@@ -53,27 +55,10 @@ impl Script {
 
     fn run_steps(&mut self, steps: &Vec<Yaml>) -> Result<(), Error> {
         for step in steps {
-            self.run_step(step.as_hash().expect("expected mapping"))?;
+            step::run(self, step.as_hash().expect("expected mapping"))?;
         }
 
         Ok(())
-    }
-
-    fn run_step(&mut self, step: &Hash) -> Result<(), Error> {
-        // example: ("echo", 1)
-        let entry = step.iter().next().unwrap();
-        let name = entry.0.as_str().unwrap();
-
-        match name {
-            "echo" => echo::run(self, entry.1),
-            "exec" => exec::run(self, entry.1, step),
-            "if" => r#if::run(self, entry.1, step),
-            "while" => r#while::run(self, entry.1, step),
-            "each" => each::run(self, entry.1, step),
-            "break" => r#break::run(self, entry.1, step),
-            "exit" => exit::run(self, entry.1),
-            _ => var::run(self, name, entry.1),
-        }
     }
 }
 
@@ -83,17 +68,6 @@ impl Script {
 mod tests {
     use super::*;
     use std::io::ErrorKind::Interrupted;
-
-    #[test]
-    fn run_step() {
-        // ???: Need to run each step type?
-        let mut script = Script::new(String::new(), Some(Vec::new()));
-        let docs = YamlLoader::load_from_str("echo: foo").unwrap();
-        let step = docs[0].as_hash().unwrap();
-
-        _ = script.run_step(&step);
-        assert_eq!("foo", script.writer.log[0]);
-    }
 
     #[test]
     fn run_steps() {

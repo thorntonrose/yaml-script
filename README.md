@@ -116,15 +116,13 @@ call:
 
 exit:
 ```
-- exit: <number-expression>
+- exit: <expression => number>
 ```
 
 condition:
 ```
-<expression>
+<expression> where true = true | non-zero | non-empty
 ```
-
-(true = true | !0 | !0.0 | !"")
 
 expression:
 ```

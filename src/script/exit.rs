@@ -2,6 +2,7 @@ use super::Script;
 use std::{io::Error, process::exit};
 use yaml_rust2::Yaml;
 
+// - exit: <number>
 pub fn run(script: &Script, code: &Yaml) -> Result<(), Error> {
     run_step(script, code, exit)
 }

@@ -1,6 +1,5 @@
-use std::io::{Error, ErrorKind::Interrupted};
-
 use super::{binding::Binding, Script};
+use std::io::{Error, ErrorKind::Interrupted};
 use yaml_rust2::{yaml::Hash, Yaml};
 
 // - while: <condition>

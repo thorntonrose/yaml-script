@@ -6,12 +6,16 @@ use yaml_rust2::{yaml::Hash, Yaml};
 
 pub struct Binding {
     vars: HashMap<String, Value>,
+    pub vars2: HashMap<String, Yaml>,
+    procs: HashMap<String, Vec<Yaml>>,
 }
 
 impl Binding {
     pub fn new() -> Self {
         Self {
             vars: HashMap::new(),
+            vars2: HashMap::new(),
+            procs: HashMap::new(),
         }
     }
 
@@ -23,6 +27,14 @@ impl Binding {
 
     pub fn set<S: Into<String>>(&mut self, name: S, val: Value) {
         self.vars.insert(name.into(), val);
+    }
+
+    pub fn get_proc<S: Into<String>>(&self, name: S) -> Vec<Yaml> {
+        self.procs.get(&name.into()).unwrap().clone()
+    }
+
+    pub fn set_proc<S: Into<String>>(&mut self, name: S, steps: Vec<Yaml>) {
+        self.procs.insert(name.into(), steps);
     }
 
     //-------------------------------------------------------------------------

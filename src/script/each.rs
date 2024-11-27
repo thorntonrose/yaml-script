@@ -8,13 +8,13 @@ use yaml_rust2::{yaml::Hash, Yaml};
 pub fn run(script: &mut Script, name: &Yaml, step: &Hash) -> Result<(), Error> {
     match run_steps(
         script,
-        // ???: Need validation. Name must be identifier.
+        // ???: Need validation. Name must be an identifier.
         name.as_str().expect("expected string"),
         &Binding::entry_to_list(step, "in"),
         &Binding::entry_to_list(step, "do"),
     ) {
         Err(e) if e.kind() == Interrupted => Ok(()),
-        r => r,
+        res => res,
     }
 }
 

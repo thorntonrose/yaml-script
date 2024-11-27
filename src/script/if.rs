@@ -7,8 +7,6 @@ use yaml_rust2::{yaml::Hash, Yaml};
 // - if: <condition>
 //   [then: <steps>]
 //   [else: <steps>]
-//
-// condition = <expression> where true = true | !0 | !0.0 | !""
 pub fn run(script: &mut Script, cond: &Yaml, step: &Hash) -> Result<(), Error> {
     let key = ternary!(script.binding.is_truthy(cond), "then", "else");
     script.run_steps(&Binding::entry_to_list(step, key))
@@ -22,7 +20,7 @@ mod tests {
     use yaml_rust2::YamlLoader;
 
     #[test]
-    fn if_then() {
+    fn run_then() {
         let mut script = Script::new(String::new(), None);
         let docs = YamlLoader::load_from_str("then: [a: 42]").unwrap();
         let hash = docs[0].as_hash().unwrap();
@@ -32,7 +30,7 @@ mod tests {
     }
 
     #[test]
-    fn if_else() {
+    fn run_else() {
         let mut script = Script::new(String::new(), None);
         let docs = YamlLoader::load_from_str("else: [a: 42]").unwrap();
         let hash = docs[0].as_hash().unwrap();

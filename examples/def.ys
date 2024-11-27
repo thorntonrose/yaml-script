@@ -1,0 +1,4 @@
+- def: foo
+  do:
+    - a: 42
+- echo: end

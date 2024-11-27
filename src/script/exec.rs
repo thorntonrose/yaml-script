@@ -49,7 +49,7 @@ mod tests {
     use yaml_rust2::yaml::YamlLoader;
 
     #[test]
-    fn exec() {
+    fn run() {
         let mut script = Script::new(String::new(), None);
         let docs = YamlLoader::load_from_str("a:").unwrap();
         let hash = docs[0].as_hash().unwrap();
@@ -59,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn exec_as() {
+    fn run_as() {
         let mut script = Script::new(String::new(), None);
         let docs = YamlLoader::load_from_str("as: a").unwrap();
         let hash = docs[0].as_hash().unwrap();
