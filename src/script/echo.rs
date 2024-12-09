@@ -3,12 +3,12 @@ use std::io::Error;
 use yaml_rust2::Yaml;
 
 // - echo: <expression>
-pub fn run(script: &mut Script, expr: &Yaml) -> Result<(), Error> {
-    write(script, script.binding.eval_to_string(expr))
+pub fn run(s: &mut Script, expr: &Yaml) -> Result<(), Error> {
+    write(s, s.binding.eval_to_string(expr))
 }
 
-pub fn write(script: &mut Script, s: String) -> Result<(), Error> {
-    script.writer.write(s);
+pub fn write(s: &mut Script, val: String) -> Result<(), Error> {
+    s.writer.write(val);
     Ok(())
 }
 
@@ -17,12 +17,12 @@ pub fn write(script: &mut Script, s: String) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eval::Value;
+    use yaml_rust2::yaml::Yaml;
 
     #[test]
     fn run() {
         let mut script = Script::new(String::new(), Some(Vec::new()));
-        script.binding.set("a", Value::Number(41.into()));
+        script.binding.set_var("a", Yaml::Integer(41));
 
         super::run(&mut script, &Yaml::from_str("answer: ${a + 1}")).unwrap();
         assert_eq!("answer: 42", script.writer.log[0]);

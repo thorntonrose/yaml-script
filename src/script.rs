@@ -1,5 +1,6 @@
 mod binding;
 mod r#break;
+mod call;
 mod def;
 mod each;
 mod echo;
@@ -15,7 +16,7 @@ use binding::Binding;
 use std::fs;
 use std::io::{Error, ErrorKind::Interrupted};
 use writer::Writer;
-use yaml_rust2::{Yaml, YamlLoader};
+use yaml_rust2::{yaml::Array, Yaml, YamlLoader};
 
 pub struct Script {
     pub path: String,
@@ -35,14 +36,14 @@ impl Script {
     //-------------------------------------------------------------------------
 
     pub fn run(&mut self) -> Result<(), Error> {
-        match self.run_docs(self.load()) {
+        match self.run_str(&fs::read_to_string(&self.path).unwrap()) {
             Err(e) if e.kind() == Interrupted => echo::write(self, e.to_string()),
             r => r,
         }
     }
 
-    fn load(&self) -> Vec<Yaml> {
-        YamlLoader::load_from_str(&fs::read_to_string(&self.path).unwrap()).unwrap()
+    fn run_str(&mut self, text: &str) -> Result<(), Error> {
+        self.run_docs(YamlLoader::load_from_str(text).unwrap())
     }
 
     fn run_docs(&mut self, docs: Vec<Yaml>) -> Result<(), Error> {
@@ -53,7 +54,7 @@ impl Script {
         Ok(())
     }
 
-    fn run_steps(&mut self, steps: &Vec<Yaml>) -> Result<(), Error> {
+    fn run_steps(&mut self, steps: &Array) -> Result<(), Error> {
         for step in steps {
             step::run(self, step.as_hash().expect("expected mapping"))?;
         }
@@ -76,7 +77,7 @@ mod tests {
         let steps = docs[0].as_vec().unwrap();
 
         _ = script.run_steps(&steps);
-        assert_eq!(42, script.binding.get("a").as_i64().unwrap());
+        assert_eq!(42, script.binding.var("a").as_i64().unwrap());
         assert_eq!("foo", script.writer.log[0]);
     }
 

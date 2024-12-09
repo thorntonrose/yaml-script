@@ -1,0 +1,13 @@
+- def: foo
+  do:
+    - echo: foo
+
+- def: bar
+  do:
+    - echo: "bar: ${a}"
+
+- call: foo
+
+- call: bar
+  with:
+    a: 1

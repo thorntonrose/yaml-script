@@ -55,7 +55,7 @@ step:
 
 var:
 ```
-<name>: <boolean> | <integer> | <float> | <string> | <list> | <map>
+<name>: <boolean> | <integer> | <float> | <string> | <list> | <map> | <expression>
 ```
 
 (Variables are global. `<list>` and `<map>` are not yet implemented.)
@@ -103,15 +103,12 @@ def:
   do: <steps>
 ```
 
-(Parameters are received as 'with.\<param-name>'.)
-
 call:
 ```
 - call: <name>
   [with:
       <name>: <expression>
       ...]
-  [as: <name>]
 ```
 
 exit:

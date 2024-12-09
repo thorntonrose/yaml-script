@@ -4,8 +4,8 @@ use yaml_rust2::{yaml::Hash, Yaml};
 
 // - break: [<condition>]
 //   [message: <string>]
-pub fn run(script: &mut Script, cond: &Yaml, step: &Hash) -> Result<(), Error> {
-    match script.binding.is_truthy(cond) {
+pub fn run(s: &mut Script, cond: &Yaml, step: &Hash) -> Result<(), Error> {
+    match s.binding.is_truthy(cond) {
         true => Err(Error::new(Interrupted, message(step))),
         false => Ok(()),
     }
@@ -23,16 +23,14 @@ fn message(step: &Hash) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::super::binding::Binding;
     use super::*;
-    use yaml_rust2::YamlLoader;
 
     #[test]
     fn run() {
         let mut script = Script::new(String::new(), None);
-        let docs = YamlLoader::load_from_str("foo:").unwrap();
-        let hash = docs[0].as_hash().unwrap();
 
-        let err = super::run(&mut script, &Yaml::from_str("true"), &hash).unwrap_err();
+        let err = super::run(&mut script, &Yaml::from_str("true"), &Hash::new()).unwrap_err();
         assert_eq!(Interrupted, err.kind());
         assert_eq!("(break)", err.to_string());
     }
@@ -40,8 +38,7 @@ mod tests {
     #[test]
     fn run_message() {
         let mut script = Script::new(String::new(), None);
-        let docs = YamlLoader::load_from_str("message: foo").unwrap();
-        let hash = docs[0].as_hash().unwrap();
+        let hash = Binding::hash_from_str("message: foo");
 
         let err = super::run(&mut script, &Yaml::from_str("true"), &hash).unwrap_err();
         assert_eq!("foo", err.to_string());
