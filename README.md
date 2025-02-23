@@ -1,6 +1,6 @@
 # YAML Script
 
-YAML Script is a YAML based scripting language.
+YAML Script is a YAML based scripting language. I created it as a fun, tongue-in-cheek way to learn Rust. (Who would want to use YAML for scripting?) It turned out to be kinda interesting, and I think I wouldn't hate it if I had to use it.
 
 
 ## Build
